@@ -76,7 +76,7 @@ Run without arguments to open the interactive wizard.
 
 Commands:
   worklog scan [--root /path] [--since "YYYY-MM-DD 00:00"] [--all-authors] [--current-branch] [--force]
-  worklog add [--date YYYY-MM-DD] [--type done|plan|blocker] "ABC-123 text"
+  worklog add [--date YYYY-MM-DD] [--type done|plan|blocker] [--task ABC-123|--last] "text"
   worklog report [YYYY-MM-DD]
   worklog summarize [YYYY-MM-DD] [--prompt] [--ai] [--model llama-3.3-70b-versatile]
   worklog standup [--date YYYY-MM-DD] [--prompt] [--no-scan]
@@ -195,6 +195,8 @@ func cmdAdd(args []string) error {
 	kind := fs.String("type", wl.KindDone, "entry type: done, plan, blocker")
 	plan := fs.Bool("plan", false, "shortcut for --type plan")
 	blocker := fs.Bool("blocker", false, "shortcut for --type blocker")
+	task := fs.String("task", "", "task key to prepend when text has no task key")
+	last := fs.Bool("last", false, "prepend the only task found in the day")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -212,12 +214,32 @@ func cmdAdd(args []string) error {
 	if err != nil {
 		return err
 	}
+	taskKey := strings.TrimSpace(*task)
+	if *last {
+		keys, err := dayTaskKeys(*date)
+		if err != nil {
+			return err
+		}
+		if len(keys) != 1 {
+			return fmt.Errorf("--last requires exactly one task in %s, found %d", *date, len(keys))
+		}
+		taskKey = keys[0]
+	}
+	text = wl.PrefixTask(text, taskKey)
 	line := fmt.Sprintf("- %s %s", time.Now().Format("15:04"), text)
 	if err := wl.AppendUnderSection(wl.DayPath(wl.Home(), *date), *date, section, line); err != nil {
 		return err
 	}
 	fmt.Printf("added %s entry to %s\n", *kind, wl.DayPath(wl.Home(), *date))
 	return nil
+}
+
+func dayTaskKeys(date string) ([]string, error) {
+	items, err := wl.ReadItems(wl.DayPath(wl.Home(), date))
+	if err != nil {
+		return nil, err
+	}
+	return wl.TaskKeysFromItems(items), nil
 }
 
 func manualSection(kind string) (string, error) {
@@ -443,7 +465,15 @@ func cmdWizard() error {
 			if text == "" {
 				return errors.New("empty note")
 			}
-			return cmdAdd([]string{"--type", kind, text})
+			task := ask(r, "Task key (empty to skip, 'last' for only day task)", "")
+			args := []string{"--type", kind}
+			if task == "last" {
+				args = append(args, "--last")
+			} else if task != "" {
+				args = append(args, "--task", task)
+			}
+			args = append(args, text)
+			return cmdAdd(args)
 		case "3":
 			date := ask(r, "Date", time.Now().Format("2006-01-02"))
 			return cmdReport([]string{date})

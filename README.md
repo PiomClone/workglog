@@ -32,6 +32,8 @@ The binary is linked to:
 worklog                          # interactive wizard
 worklog scan
 worklog add "ABC-123 what I did"
+worklog add --task ABC-123 "manual note without task key"
+worklog add --last "manual note for the only task of the day"
 worklog add --plan "ABC-123 next step"
 worklog add --blocker "ABC-123 waiting for access"
 worklog report
@@ -59,11 +61,13 @@ worklog report
 
 ```bash
 worklog add "ABC-123 what I did"
+worklog add --task ABC-123 "manual note without task key"
+worklog add --last "manual note for the only task of the day"
 worklog add --plan "ABC-123 next step"
 worklog add --blocker "ABC-123 waiting for access"
 ```
 
-If a manual entry is wrong, edit the day file directly:
+In Web report, choose a task from the dropdown: the task key is prepended automatically. If a manual entry is wrong, edit the day file directly:
 
 ```bash
 $EDITOR ~/.worklog/days/2026-06-23.md

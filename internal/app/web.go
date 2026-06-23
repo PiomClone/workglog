@@ -210,6 +210,7 @@ type webPage struct {
 	Prompt      string
 	Summary     string
 	Stats       wl.WorklogStats
+	TaskOptions []wl.TaskGroup
 }
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{"join": joinCSV}).Parse(`<!doctype html>
@@ -333,9 +334,10 @@ func webReport(w http.ResponseWriter, r *http.Request) {
 	allItems := append(append([]string{}, doneItems...), append(planItems, blockerItems...)...)
 	jira := wl.LoadJiraIssues(data.Config, allItems)
 	planned := wl.OrderedGroupsWithJira(wl.GroupByTask(planItems), jira)
+	data.TaskOptions = wl.OrderedGroupsWithJira(wl.GroupByTask(allItems), jira)
 	data.Items = allItems
 	data.Summary = wl.TelegramReport(data.Date, wl.GroupByTask(doneItems), jira, planned, wl.GroupByTask(blockerItems))
-	render(w, "Отчёт "+data.Date, data, `<div class="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 my-4"><div class="card"><p class="muted mb-4"><a href="/report?date={{.PrevDate}}">← {{.PrevDate}}</a> · <a href="/report?date={{.NextDate}}">{{.NextDate}} →</a></p><h2 class="text-xl font-bold text-sky-300 mb-3">Добавить заметку</h2><form class="flex flex-col gap-3" method="post" action="/add"><input type="hidden" name="date" value="{{.Date}}"><div class="field"><label>Тип</label><select name="type"><option value="done">✅ Что сделал</option><option value="plan">📌 Что буду делать</option><option value="blocker">⛔ Блокер</option></select></div><div class="field"><label>Текст</label><input name="text" placeholder="ABC-123 коротко что произошло"></div><button class="btn">Добавить</button></form><hr class="border-slate-800 my-5"><form class="flex flex-wrap gap-3" method="post" action="/generate"><input type="hidden" name="date" value="{{.Date}}"><button class="btn btn-green">✦ Groq summary</button><button class="btn btn2" name="prompt" value="1">Промпт</button></form></div><div class="card">{{if not .Items}}<p class="muted">Записей за день пока нет.</p>{{else}}<div class="flex items-center justify-between gap-3 mb-3"><h2 class="text-xl font-bold text-sky-300">Текст для Telegram</h2><button type="button" class="btn btn-copy" onclick="copyText('telegram-text', this)">📋 copy</button></div><pre id="telegram-text" class="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-auto text-slate-100">{{.Summary}}</pre>{{end}}</div></div>`)
+	render(w, "Отчёт "+data.Date, data, `<div class="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 my-4"><div class="card"><p class="muted mb-4"><a href="/report?date={{.PrevDate}}">← {{.PrevDate}}</a> · <a href="/report?date={{.NextDate}}">{{.NextDate}} →</a></p><h2 class="text-xl font-bold text-sky-300 mb-3">Добавить заметку</h2><form class="flex flex-col gap-3" method="post" action="/add"><input type="hidden" name="date" value="{{.Date}}"><div class="field"><label>Тип</label><select name="type"><option value="done">✅ Что сделал</option><option value="plan">📌 Что буду делать</option><option value="blocker">⛔ Блокер</option></select></div><div class="field"><label>Задача</label><select name="task"><option value="">Без привязки</option>{{range .TaskOptions}}{{if ne .Task "untracked"}}<option value="{{.Task}}" {{if eq (len $.TaskOptions) 1}}selected{{end}}>{{.Title}}</option>{{end}}{{end}}</select><p class="muted text-xs mt-1">Если выбрана задача, номер добавится к заметке автоматически.</p></div><div class="field"><label>Текст</label><input name="text" placeholder="коротко что произошло"></div><button class="btn">Добавить</button></form><hr class="border-slate-800 my-5"><form class="flex flex-wrap gap-3" method="post" action="/generate"><input type="hidden" name="date" value="{{.Date}}"><button class="btn btn-green">✦ Groq summary</button><button class="btn btn2" name="prompt" value="1">Промпт</button></form></div><div class="card">{{if not .Items}}<p class="muted">Записей за день пока нет.</p>{{else}}<div class="flex items-center justify-between gap-3 mb-3"><h2 class="text-xl font-bold text-sky-300">Текст для Telegram</h2><button type="button" class="btn btn-copy" onclick="copyText('telegram-text', this)">📋 copy</button></div><pre id="telegram-text" class="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-auto text-slate-100">{{.Summary}}</pre>{{end}}</div></div>`)
 }
 
 func webPrompt(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +353,7 @@ func webPrompt(w http.ResponseWriter, r *http.Request) {
 	allItems := append(append([]string{}, doneItems...), append(planItems, blockerItems...)...)
 	jira := wl.LoadJiraIssues(data.Config, allItems)
 	planned := wl.OrderedGroupsWithJira(wl.GroupByTask(planItems), jira)
+	data.TaskOptions = wl.OrderedGroupsWithJira(wl.GroupByTask(allItems), jira)
 	data.Items = allItems
 	data.Groups = wl.GroupByTask(doneItems)
 	data.Prompt = wl.BuildPrompt(data.Date, data.Groups, jira, planned, wl.GroupByTask(blockerItems))
@@ -408,10 +411,15 @@ func webAddAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := r.FormValue("type")
-	args := []string{"--type", kind, text}
+	task := strings.TrimSpace(r.FormValue("task"))
+	args := []string{"--type", kind}
 	if date != "" {
-		args = []string{"--date", date, "--type", kind, text}
+		args = append(args, "--date", date)
 	}
+	if task != "" {
+		args = append(args, "--task", task)
+	}
+	args = append(args, text)
 	if err := cmdAdd(args); err != nil {
 		http.Error(w, err.Error(), 500)
 		return

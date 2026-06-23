@@ -491,6 +491,30 @@ func TaskKey(text string) string {
 	return ""
 }
 
+func TaskKeysFromItems(items []string) []string {
+	seen := map[string]bool{}
+	var keys []string
+	for _, item := range items {
+		key := TaskKey(item)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func PrefixTask(text, task string) string {
+	text = strings.TrimSpace(text)
+	task = strings.TrimSpace(task)
+	if task == "" || text == "" || TaskKey(text) != "" {
+		return text
+	}
+	return task + " " + text
+}
+
 func GroupByTask(items []string) map[string][]string {
 	groups := map[string][]string{}
 	for _, item := range items {
@@ -623,18 +647,45 @@ func SimpleStandup(date string, done map[string][]string, jira map[string]JiraIs
 	return b.String()
 }
 
-const DefaultStandupPromptTemplate = `Сделай краткий standup на русском языке по рабочему дневнику.
-Формат markdown: ## Что сделал; если есть входные данные — ## Что буду делать и ## Блокеры.
-В 'Что сделал' группируй по задачам: заголовок задачи бери из Jira, результат формулируй по commit/manual messages.
-В 'Что буду делать' включай только переданные plan/open-branch items.
-В 'Блокеры' включай только явно переданные blocker items. Не выдумывай.
+const DefaultStandupPromptTemplate = `Сделай краткий отчёт для вставки в Telegram на русском языке.
+
+Формат вывода строго такой:
+
+✅ Что сделал
+• TASK-123 — заголовок задачи
+  - короткий результат без времени, repo, sha и технического шума
+
+📌 Что буду делать
+• TASK-123 — заголовок задачи
+  - короткий план по этой задаче
+
+⛔ Блокеры
+• TASK-123 — заголовок задачи
+  - только явно указанный блокер
+
+Правила:
+- Не используй markdown-заголовки ## и ###.
+- Не добавляй дату.
+- Не добавляй секцию блокеры, если их нет во входных данных.
+- Не выдумывай планы, статусы и блокеры.
+- В секции "Что буду делать" сохраняй привязку к задаче: если во входе есть TASK-123 и заголовок Jira, выводи пункт под этой задачей, а не отдельным безымянным планом.
+- Если в секции "Что буду делать" входной пункт без TASK-123/заголовка, выводи его одной строкой вида: • посмотрю, что есть в спринте; не добавляй фразы вроде "нет информации о конкретных задачах".
+- Объединяй дублирующиеся commit messages.
+- Убирай время, repo, sha и лишние технические детали.
+- Сохраняй номер задачи и человекочитаемый заголовок из Jira.
+- Исправляй грамматические ошибки.
+
+Входные данные:
 
 Дата: {{date}}
 
-## Вход: что сделал
-
+Что сделал:
 {{done}}
+
+Что буду делать:
 {{planned}}
+
+Блокеры:
 {{blockers}}`
 
 func BuildPrompt(date string, done map[string][]string, jira map[string]JiraIssue, planned []TaskGroup, blockers map[string][]string) string {
@@ -760,25 +811,43 @@ func GroqAPIKey() string {
 }
 
 func SaveGroqStats(home, model string, headers http.Header) {
-	parts := []string{"🤖 Groq", "model: " + model, "updated: " + time.Now().Format("2006-01-02 15:04:05")}
-	for _, key := range []string{
-		"x-ratelimit-limit-requests",
-		"x-ratelimit-remaining-requests",
-		"x-ratelimit-reset-requests",
-		"x-ratelimit-limit-tokens",
-		"x-ratelimit-remaining-tokens",
-		"x-ratelimit-reset-tokens",
-	} {
-		if value := headers.Get(key); value != "" {
-			parts = append(parts, key+": "+value)
-		}
+	requests := ratePair(headers, "x-ratelimit-remaining-requests", "x-ratelimit-limit-requests")
+	tokens := ratePair(headers, "x-ratelimit-remaining-tokens", "x-ratelimit-limit-tokens")
+	parts := []string{"🤖 Groq", model}
+	if requests != "" {
+		parts = append(parts, "requests "+requests)
 	}
+	if reset := headers.Get("x-ratelimit-reset-requests"); reset != "" {
+		parts = append(parts, "req reset "+reset)
+	}
+	if tokens != "" {
+		parts = append(parts, "tokens "+tokens)
+	}
+	if reset := headers.Get("x-ratelimit-reset-tokens"); reset != "" {
+		parts = append(parts, "token reset "+reset)
+	}
+	parts = append(parts, "updated "+time.Now().Format("15:04"))
 	state, err := LoadState(home)
 	if err != nil {
 		return
 	}
 	state.GroqStats = strings.Join(parts, " · ")
 	_ = SaveState(home, state)
+}
+
+func ratePair(headers http.Header, remainingKey, limitKey string) string {
+	remaining := headers.Get(remainingKey)
+	limit := headers.Get(limitKey)
+	switch {
+	case remaining != "" && limit != "":
+		return remaining + "/" + limit + " left"
+	case remaining != "":
+		return remaining + " left"
+	case limit != "":
+		return "limit " + limit
+	default:
+		return ""
+	}
 }
 
 func callGroq(cfg Config, key, model, prompt string) (string, error) {

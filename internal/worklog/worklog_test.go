@@ -60,3 +60,25 @@ func TestTelegramReportDeduplicatesCleanedItems(t *testing.T) {
 		t.Fatalf("expected deduplicated report, got:\n%s", report)
 	}
 }
+
+func TestPrefixTask(t *testing.T) {
+	if got := PrefixTask("manual note", "ABC-1"); got != "ABC-1 manual note" {
+		t.Fatalf("got %q", got)
+	}
+	if got := PrefixTask("ABC-2 manual note", "ABC-1"); got != "ABC-2 manual note" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTaskKeysFromItems(t *testing.T) {
+	got := TaskKeysFromItems([]string{"10:00 ABC-2 b", "11:00 ABC-1 a", "12:00 ABC-2 c", "no task"})
+	want := []string{"ABC-1", "ABC-2"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	}
+}
