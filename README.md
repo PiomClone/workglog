@@ -92,13 +92,22 @@ Print prompt only:
 worklog summarize --prompt
 ```
 
-Call Grok/xAI:
+Call Grok/xAI via environment variable:
 
 ```bash
 export XAI_API_KEY="..."
 export WORKLOG_AI_MODEL="grok-4"
 worklog summarize --ai
 ```
+
+Or store the key in macOS Keychain:
+
+```bash
+security add-generic-password -a "$USER" -s worklog-xai-api-key -w "YOUR_XAI_API_KEY" -U
+worklog summarize --ai
+```
+
+`XAI_API_KEY` has priority. If it is empty, `worklog` reads Keychain service `worklog-xai-api-key`.
 
 The summary is saved to:
 

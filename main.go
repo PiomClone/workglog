@@ -85,7 +85,7 @@ Env:
   WORKLOG_HOME      default ~/.worklog
   WORKLOG_SCAN_ROOT default /Users/avkorkin/prj
   WORKLOG_AI_MODEL  default grok-4
-  XAI_API_KEY       required for summarize --ai`)
+  XAI_API_KEY       optional; fallback macOS Keychain service worklog-xai-api-key`)
 }
 
 func cmdScan(args []string) error {
@@ -480,6 +480,15 @@ func buildPrompt(date string, groups map[string][]string) string {
 	return b.String()
 }
 
+func keychainSecret(service string) string {
+	cmd := exec.Command("security", "find-generic-password", "-s", service, "-a", os.Getenv("USER"), "-w")
+	b, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 type chatReq struct {
 	Model    string    `json:"model"`
 	Messages []message `json:"messages"`
@@ -500,7 +509,10 @@ type chatResp struct {
 func callXAI(model, prompt string) (string, error) {
 	key := os.Getenv("XAI_API_KEY")
 	if key == "" {
-		return "", errors.New("XAI_API_KEY is empty")
+		key = keychainSecret("worklog-xai-api-key")
+	}
+	if key == "" {
+		return "", errors.New("XAI_API_KEY is empty and Keychain service worklog-xai-api-key is not set")
 	}
 	body, _ := json.Marshal(chatReq{Model: model, Messages: []message{{Role: "user", Content: prompt}}})
 	req, err := http.NewRequest("POST", "https://api.x.ai/v1/chat/completions", bytes.NewReader(body))
