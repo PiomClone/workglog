@@ -1,7 +1,9 @@
-package main
+package app
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -28,6 +30,14 @@ var (
 	builtAt = "unknown"
 )
 
+type Config struct {
+	ScanRoot   string `json:"scan_root,omitempty"`
+	AIModel    string `json:"ai_model,omitempty"`
+	XAIBaseURL string `json:"xai_base_url,omitempty"`
+	JiraURL    string `json:"jira_url,omitempty"`
+	JiraUser   string `json:"jira_user,omitempty"`
+}
+
 type State struct {
 	Seen     map[string][]string `json:"seen"`
 	LastScan string              `json:"last_scan,omitempty"`
@@ -40,17 +50,15 @@ type Commit struct {
 	Subject string
 }
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func SetVersion(v, c, b string) {
+	version = v
+	commit = c
+	builtAt = b
 }
 
-func run(args []string) error {
+func Run(args []string) error {
 	if len(args) == 0 {
-		usage()
-		return nil
+		return cmdWizard()
 	}
 	switch args[0] {
 	case "scan":
@@ -61,6 +69,12 @@ func run(args []string) error {
 		return cmdReport(args[1:])
 	case "summarize":
 		return cmdSummarize(args[1:])
+	case "standup":
+		return cmdStandup(args[1:])
+	case "setup":
+		return cmdSetup()
+	case "wizard":
+		return cmdWizard()
 	case "version":
 		return cmdVersion()
 	case "help", "-h", "--help":
@@ -74,23 +88,31 @@ func run(args []string) error {
 func usage() {
 	fmt.Println(`worklog
 
+Run without arguments to open the interactive wizard.
+
 Commands:
   worklog scan [--root /path] [--since "14 days ago"] [--all-authors]
   worklog add [--date YYYY-MM-DD] "ABC-123 text"
   worklog report [YYYY-MM-DD]
   worklog summarize [YYYY-MM-DD] [--prompt] [--ai] [--model grok-4]
+  worklog standup [--date YYYY-MM-DD] [--prompt] [--no-scan]
+  worklog setup
+  worklog wizard
   worklog version
 
 Env:
   WORKLOG_HOME      default ~/.worklog
-  WORKLOG_SCAN_ROOT default /Users/avkorkin/prj
-  WORKLOG_AI_MODEL  default grok-4
-  XAI_API_KEY       optional; fallback macOS Keychain service worklog-xai-api-key`)
+  WORKLOG_SCAN_ROOT default /Users/avkorkin/prj or config scan_root
+  WORKLOG_AI_MODEL  default grok-4 or config ai_model
+  WORKLOG_XAI_BASE_URL default https://api.x.ai/v1 or config xai_base_url
+  XAI_API_KEY       optional; fallback Keychain xai-api-token/grok.x.ai-api-token/worklog-xai-api-key
+  Jira token        optional; fallback Keychain jira-api-token/worklog-jira-api-token`)
 }
 
 func cmdScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
-	root := fs.String("root", envDefault("WORKLOG_SCAN_ROOT", defaultRoot), "projects root")
+	cfg := loadConfig(worklogHome())
+	root := fs.String("root", envDefault("WORKLOG_SCAN_ROOT", defaultIfEmpty(cfg.ScanRoot, defaultRoot)), "projects root")
 	since := fs.String("since", "14 days ago", "git log since")
 	allAuthors := fs.Bool("all-authors", false, "include all authors")
 	author := fs.String("author", "", "git log author filter")
@@ -193,8 +215,9 @@ func cmdReport(args []string) error {
 }
 
 func cmdSummarize(args []string) error {
+	cfg := loadConfig(worklogHome())
 	promptOnly, ai := false, false
-	model := envDefault("WORKLOG_AI_MODEL", "grok-4")
+	model := envDefault("WORKLOG_AI_MODEL", defaultIfEmpty(cfg.AIModel, "grok-4"))
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -220,12 +243,12 @@ func cmdSummarize(args []string) error {
 		fmt.Printf("no entries for %s\n", date)
 		return nil
 	}
-	prompt := buildPrompt(date, groupByTask(items))
+	prompt := buildPrompt(date, groupByTask(items), loadJiraIssues(cfg, items))
 	if promptOnly || !ai {
 		fmt.Print(prompt)
 		return nil
 	}
-	answer, err := callXAI(model, prompt)
+	answer, err := callXAI(cfg, model, prompt)
 	if err != nil {
 		return err
 	}
@@ -241,6 +264,120 @@ func cmdSummarize(args []string) error {
 	return nil
 }
 
+func cmdStandup(args []string) error {
+	fs := flag.NewFlagSet("standup", flag.ContinueOnError)
+	date := fs.String("date", previousWorkday(time.Now()).Format("2006-01-02"), "standup date")
+	promptOnly := fs.Bool("prompt", false, "print prompt instead of calling AI")
+	noScan := fs.Bool("no-scan", false, "do not scan before summarizing")
+	model := fs.String("model", envDefault("WORKLOG_AI_MODEL", defaultIfEmpty(loadConfig(worklogHome()).AIModel, "grok-4")), "xAI model")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*noScan {
+		if err := cmdScan([]string{"--since", *date + " 00:00"}); err != nil {
+			return err
+		}
+	}
+	if *promptOnly {
+		return cmdSummarize([]string{*date, "--prompt", "--model", *model})
+	}
+	return cmdSummarize([]string{*date, "--ai", "--model", *model})
+}
+
+func cmdSetup() error {
+	home := worklogHome()
+	cfg := loadConfig(home)
+	r := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("worklog setup")
+		fmt.Println("1) Scan root")
+		fmt.Println("2) Grok/xAI")
+		fmt.Println("3) Jira")
+		fmt.Println("4) Show config")
+		fmt.Println("5) Done")
+		choice := ask(r, "Choose", "5")
+		switch choice {
+		case "1":
+			cfg.ScanRoot = ask(r, "Projects root", defaultIfEmpty(cfg.ScanRoot, defaultRoot))
+			if err := saveConfig(home, cfg); err != nil {
+				return err
+			}
+		case "2":
+			cfg.AIModel = ask(r, "Grok model", defaultIfEmpty(cfg.AIModel, "grok-4"))
+			cfg.XAIBaseURL = strings.TrimRight(ask(r, "xAI base URL", defaultIfEmpty(cfg.XAIBaseURL, defaultXAIBaseURL())), "/")
+			xaiKey := ask(r, "xAI/Grok API key (empty to keep current)", "")
+			if xaiKey != "" {
+				if err := storeKeychainSecret("xai-api-token", xaiKey); err != nil {
+					return err
+				}
+			}
+			if err := saveConfig(home, cfg); err != nil {
+				return err
+			}
+		case "3":
+			cfg.JiraURL = strings.TrimRight(ask(r, "Jira URL", cfg.JiraURL), "/")
+			cfg.JiraUser = ask(r, "Jira user/email", cfg.JiraUser)
+			jiraToken := ask(r, "Jira API token (empty to keep current)", "")
+			if jiraToken != "" {
+				if err := storeKeychainSecret("jira-api-token", jiraToken); err != nil {
+					return err
+				}
+			}
+			if err := saveConfig(home, cfg); err != nil {
+				return err
+			}
+		case "4":
+			printConfig(home, cfg)
+		case "5", "", "q", "quit", "exit":
+			fmt.Printf("saved config to %s\n", configPath(home))
+			return nil
+		default:
+			fmt.Println("unknown choice")
+		}
+		fmt.Println()
+	}
+}
+
+func cmdWizard() error {
+	r := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("worklog wizard")
+		fmt.Println("1) Scan commits")
+		fmt.Println("2) Add manual note")
+		fmt.Println("3) Report")
+		fmt.Println("4) Standup summary for previous workday")
+		fmt.Println("5) Standup prompt for previous workday")
+		fmt.Println("6) Setup keys/config")
+		fmt.Println("7) Exit")
+		choice := ask(r, "Choose", "4")
+		switch choice {
+		case "1":
+			return cmdScan(nil)
+		case "2":
+			text := ask(r, "Note", "")
+			if text == "" {
+				return errors.New("empty note")
+			}
+			return cmdAdd([]string{text})
+		case "3":
+			date := ask(r, "Date", time.Now().Format("2006-01-02"))
+			return cmdReport([]string{date})
+		case "4":
+			date := ask(r, "Date", previousWorkday(time.Now()).Format("2006-01-02"))
+			return cmdStandup([]string{"--date", date})
+		case "5":
+			date := ask(r, "Date", previousWorkday(time.Now()).Format("2006-01-02"))
+			return cmdStandup([]string{"--date", date, "--prompt"})
+		case "6":
+			return cmdSetup()
+		case "7", "", "q", "quit", "exit":
+			return nil
+		default:
+			fmt.Println("unknown choice")
+		}
+	}
+}
+
 func cmdVersion() error {
 	fmt.Printf("worklog %s\ncommit: %s\nbuilt: %s\n", version, commit, builtAt)
 	return nil
@@ -253,6 +390,7 @@ func worklogHome() string {
 	return filepath.Join(userHome(), ".worklog")
 }
 
+func configPath(home string) string        { return filepath.Join(home, "config.json") }
 func dayPath(home, date string) string     { return filepath.Join(home, "days", date+".md") }
 func summaryPath(home, date string) string { return filepath.Join(home, "summaries", date+".md") }
 func envDefault(k, fallback string) string {
@@ -260,6 +398,20 @@ func envDefault(k, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func defaultXAIBaseURL() string {
+	return "https://api.x.ai/v1"
+}
+
+func xaiBaseURL(cfg Config) string {
+	return strings.TrimRight(envDefault("WORKLOG_XAI_BASE_URL", defaultIfEmpty(cfg.XAIBaseURL, defaultXAIBaseURL())), "/")
+}
+func defaultIfEmpty(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
 }
 func userHome() string { h, _ := os.UserHomeDir(); return h }
 func expandHome(p string) string {
@@ -274,6 +426,66 @@ func todayOrArg(args []string) string {
 		return args[0]
 	}
 	return time.Now().Format("2006-01-02")
+}
+
+func loadConfig(home string) Config {
+	b, err := os.ReadFile(configPath(home))
+	if err != nil {
+		return Config{}
+	}
+	var cfg Config
+	_ = json.Unmarshal(b, &cfg)
+	return cfg
+}
+
+func saveConfig(home string, cfg Config) error {
+	if err := os.MkdirAll(home, 0755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(home), append(b, '\n'), 0600)
+}
+
+func printConfig(home string, cfg Config) {
+	fmt.Printf("config: %s\n", configPath(home))
+	fmt.Printf("scan_root: %s\n", defaultIfEmpty(cfg.ScanRoot, defaultRoot))
+	fmt.Printf("ai_model: %s\n", defaultIfEmpty(cfg.AIModel, "grok-4"))
+	fmt.Printf("jira_url: %s\n", cfg.JiraURL)
+	fmt.Printf("jira_user: %s\n", cfg.JiraUser)
+	fmt.Printf("xai_key: %s\n", configured(xaiAPIKey() != ""))
+	fmt.Printf("jira_token: %s\n", configured(jiraAPIToken() != ""))
+}
+
+func configured(v bool) string {
+	if v {
+		return "configured"
+	}
+	return "missing"
+}
+
+func ask(r *bufio.Reader, label, def string) string {
+	if def != "" {
+		fmt.Printf("%s [%s]: ", label, def)
+	} else {
+		fmt.Printf("%s: ", label)
+	}
+	text, _ := r.ReadString('\n')
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return def
+	}
+	return text
+}
+
+func previousWorkday(t time.Time) time.Time {
+	d := t.AddDate(0, 0, -1)
+	for d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+		d = d.AddDate(0, 0, -1)
+	}
+	return d
 }
 
 func findRepos(root string) ([]string, error) {
@@ -458,7 +670,7 @@ func printGroups(groups map[string][]string) {
 	}
 }
 
-func buildPrompt(date string, groups map[string][]string) string {
+func buildPrompt(date string, groups map[string][]string, jira map[string]JiraIssue) string {
 	var b strings.Builder
 	b.WriteString("Сделай краткое standup summary на русском языке по рабочему дневнику.\n")
 	b.WriteString("Формат строго markdown: ## Что сделал, ## В процессе, ## Блокеры.\n")
@@ -480,6 +692,86 @@ func buildPrompt(date string, groups map[string][]string) string {
 	return b.String()
 }
 
+type JiraIssue struct {
+	Summary string
+	Status  string
+}
+
+type jiraResp struct {
+	Fields struct {
+		Summary string `json:"summary"`
+		Status  struct {
+			Name string `json:"name"`
+		} `json:"status"`
+	} `json:"fields"`
+}
+
+func loadJiraIssues(cfg Config, items []string) map[string]JiraIssue {
+	result := map[string]JiraIssue{}
+	if cfg.JiraURL == "" || cfg.JiraUser == "" {
+		return result
+	}
+	token := jiraAPIToken()
+	if token == "" {
+		return result
+	}
+	keys := map[string]bool{}
+	for _, item := range items {
+		if key := taskRE.FindString(item); key != "" {
+			keys[key] = true
+		}
+	}
+	for key := range keys {
+		if issue, err := fetchJiraIssue(cfg, token, key); err == nil {
+			result[key] = issue
+		}
+	}
+	return result
+}
+
+func fetchJiraIssue(cfg Config, token, key string) (JiraIssue, error) {
+	url := strings.TrimRight(cfg.JiraURL, "/") + "/rest/api/2/issue/" + key + "?fields=summary,status"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return JiraIssue{}, err
+	}
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cfg.JiraUser+":"+token)))
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return JiraIssue{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return JiraIssue{}, fmt.Errorf("jira %s", resp.Status)
+	}
+	var parsed jiraResp
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return JiraIssue{}, err
+	}
+	return JiraIssue{Summary: parsed.Fields.Summary, Status: parsed.Fields.Status.Name}, nil
+}
+
+func xaiAPIKey() string {
+	if key := os.Getenv("XAI_API_KEY"); key != "" {
+		return key
+	}
+	return firstKeychainSecret("xai-api-token", "grok.x.ai-api-token", "worklog-xai-api-key")
+}
+
+func jiraAPIToken() string {
+	return firstKeychainSecret("jira-api-token", "worklog-jira-api-token")
+}
+
+func firstKeychainSecret(services ...string) string {
+	for _, service := range services {
+		if value := keychainSecret(service); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func keychainSecret(service string) string {
 	cmd := exec.Command("security", "find-generic-password", "-s", service, "-a", os.Getenv("USER"), "-w")
 	b, err := cmd.Output()
@@ -487,6 +779,11 @@ func keychainSecret(service string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+func storeKeychainSecret(service, value string) error {
+	cmd := exec.Command("security", "add-generic-password", "-a", os.Getenv("USER"), "-s", service, "-w", value, "-U")
+	return cmd.Run()
 }
 
 type chatReq struct {
@@ -506,16 +803,13 @@ type chatResp struct {
 	Error any `json:"error,omitempty"`
 }
 
-func callXAI(model, prompt string) (string, error) {
-	key := os.Getenv("XAI_API_KEY")
+func callXAI(cfg Config, model, prompt string) (string, error) {
+	key := xaiAPIKey()
 	if key == "" {
-		key = keychainSecret("worklog-xai-api-key")
-	}
-	if key == "" {
-		return "", errors.New("XAI_API_KEY is empty and Keychain service worklog-xai-api-key is not set")
+		return "", errors.New("XAI_API_KEY is empty and Keychain services xai-api-token/grok.x.ai-api-token/worklog-xai-api-key are not set")
 	}
 	body, _ := json.Marshal(chatReq{Model: model, Messages: []message{{Role: "user", Content: prompt}}})
-	req, err := http.NewRequest("POST", "https://api.x.ai/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", xaiBaseURL(cfg)+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

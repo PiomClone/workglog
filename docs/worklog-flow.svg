@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" role="img" aria-label="worklog flow">
+  <style>
+    .bg{fill:#0b1020}.box{fill:#111a33;stroke:#5eead4;stroke-width:2;rx:18}.text{fill:#e5e7eb;font:600 24px system-ui,-apple-system,Segoe UI,sans-serif}.sub{fill:#9ca3af;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.arrow{stroke:#93c5fd;stroke-width:4;fill:none;marker-end:url(#a)}
+  </style>
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#93c5fd"/></marker></defs>
+  <rect class="bg" width="960" height="300" rx="24"/>
+  <text x="40" y="52" class="text">worklog</text>
+  <text x="40" y="78" class="sub">Git commits + manual notes + Jira + Grok standup summary</text>
+  <rect class="box" x="45" y="125" width="185" height="95"/>
+  <text x="75" y="165" class="text">scan/add</text>
+  <text x="75" y="192" class="sub">commits, notes</text>
+  <path class="arrow" d="M245 172 H340"/>
+  <rect class="box" x="355" y="125" width="220" height="95"/>
+  <text x="388" y="165" class="text">~/.worklog</text>
+  <text x="388" y="192" class="sub">daily markdown</text>
+  <path class="arrow" d="M590 172 H685"/>
+  <rect class="box" x="700" y="125" width="215" height="95"/>
+  <text x="738" y="165" class="text">standup</text>
+  <text x="738" y="192" class="sub">Jira + Grok summary</text>
+</svg>

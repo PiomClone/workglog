@@ -1,5 +1,11 @@
 # worklog
 
+<p align="center">
+  <img src="docs/icon.svg" width="96" alt="worklog logo">
+</p>
+
+![worklog flow](docs/worklog-flow.svg)
+
 Local work diary without Git hooks and without changing existing repositories.
 
 `worklog` scans Git repositories, writes commits and manual notes to daily Markdown files, groups entries by task key like `ABC-123`, and can prepare a standup summary with Grok/xAI.
@@ -21,10 +27,13 @@ The binary is linked to:
 ## Usage
 
 ```bash
+worklog                          # interactive wizard
 worklog scan
 worklog add "ABC-123 what I did"
 worklog report
 worklog report 2026-06-22
+worklog standup                  # previous workday, scan + Grok summary
+worklog standup --prompt         # previous workday prompt only
 worklog summarize --prompt
 worklog summarize --ai --model grok-4
 worklog version
@@ -34,12 +43,33 @@ worklog version
 
 ```text
 ~/.worklog/
+  config.json
   state.json
   days/YYYY-MM-DD.md
   summaries/YYYY-MM-DD.md
 ```
 
+Example config:
+
+```json
+{
+  "scan_root": "/Users/avkorkin/prj",
+  "ai_model": "grok-4",
+  "xai_base_url": "https://api.x.ai/v1",
+  "jira_url": "https://jira.example.com",
+  "jira_user": "user@example.com"
+}
+```
+
 ## Commands
+
+### Interactive wizard
+
+```bash
+worklog
+```
+
+The wizard lets you choose scan, add note, report, standup summary, standup prompt, or setup. Explicit commands bypass the wizard.
 
 ### Scan commits
 
@@ -97,17 +127,22 @@ Call Grok/xAI via environment variable:
 ```bash
 export XAI_API_KEY="..."
 export WORKLOG_AI_MODEL="grok-4"
+export WORKLOG_XAI_BASE_URL="https://api.x.ai/v1"
 worklog summarize --ai
 ```
 
 Or store the key in macOS Keychain:
 
 ```bash
-security add-generic-password -a "$USER" -s worklog-xai-api-key -w "YOUR_XAI_API_KEY" -U
+security add-generic-password -a "$USER" -s xai-api-token -w "YOUR_XAI_API_KEY" -U
 worklog summarize --ai
 ```
 
-`XAI_API_KEY` has priority. If it is empty, `worklog` reads Keychain service `worklog-xai-api-key`.
+`XAI_API_KEY` has priority. If it is empty, `worklog` checks Keychain services `xai-api-token`, `grok.x.ai-api-token`, then legacy `worklog-xai-api-key`.
+
+`WORKLOG_XAI_BASE_URL` has priority over config. Default: `https://api.x.ai/v1`.
+
+Jira token is read from Keychain service `jira-api-token`, with legacy fallback `worklog-jira-api-token`.
 
 The summary is saved to:
 
