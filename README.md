@@ -1,5 +1,7 @@
 # worklog
 
+[English](README.md) | [Русский](README.ru.md)
+
 <p align="center">
   <img src="docs/icon.svg" width="96" alt="worklog logo">
 </p>
@@ -8,7 +10,7 @@
 
 Local work diary without Git hooks and without changing existing repositories.
 
-`worklog` scans Git repositories, writes commits and manual notes to daily Markdown files, groups entries by task key like `ABC-123`, and can prepare a standup summary with Grok/xAI.
+`worklog` scans Git repositories, writes commits and manual notes to daily Markdown files, groups entries by task key like `ABC-123`, and can prepare a standup summary with Groq.
 
 ## Install
 
@@ -30,12 +32,15 @@ The binary is linked to:
 worklog                          # interactive wizard
 worklog scan
 worklog add "ABC-123 what I did"
+worklog add --plan "ABC-123 next step"
+worklog add --blocker "ABC-123 waiting for access"
 worklog report
 worklog report 2026-06-22
-worklog standup                  # previous workday, scan + Grok summary
+worklog standup                  # previous workday, scan + Groq summary
 worklog standup --prompt         # previous workday prompt only
 worklog summarize --prompt
-worklog summarize --ai --model grok-4
+worklog summarize --ai --model llama-3.3-70b-versatile
+worklog stats                    # task/Groq statistics
 worklog version
 ```
 
@@ -54,8 +59,8 @@ Example config:
 ```json
 {
   "scan_root": "/Users/avkorkin/prj",
-  "ai_model": "grok-4",
-  "xai_base_url": "https://api.x.ai/v1",
+  "groq_model": "llama-3.3-70b-versatile",
+  "groq_base_url": "https://api.groq.com/openai/v1",
   "jira_url": "https://jira.example.com",
   "jira_user": "user@example.com"
 }
@@ -80,16 +85,19 @@ worklog scan
 Defaults:
 
 - root: `/Users/avkorkin/prj`
-- range: `--since "14 days ago"`
+- range: start of today (`YYYY-MM-DD 00:00`)
+- refs: all local refs/branches by default; use `--current-branch` for current HEAD only
 - author: global `git config user.email`, fallback to `user.name`
 
 Options:
 
 ```bash
 worklog scan --root /path/to/projects
+worklog scan --since "14 days ago"   # bootstrap
 worklog scan --since "30 days ago"
 worklog scan --all-authors
 worklog scan --author user@example.com
+worklog scan --force             # ignore state.json, deduplicate by SHA in day files
 ```
 
 ### Add manual entry
@@ -97,6 +105,10 @@ worklog scan --author user@example.com
 ```bash
 worklog add "ABC-123 call about integration"
 worklog add --date 2026-06-22 "ABC-123 retro note"
+worklog add --type plan "ABC-123 next step"
+worklog add --type blocker "ABC-123 waiting for access"
+worklog add --plan "ABC-123 next step"
+worklog add --blocker "ABC-123 waiting for access"
 ```
 
 ### Report
@@ -116,39 +128,75 @@ Entries without a task key go to `untracked`.
 
 ### Standup summary
 
-Print prompt only:
+Prompt only:
 
 ```bash
 worklog summarize --prompt
+worklog standup --prompt --no-scan
 ```
 
-Call Grok/xAI via environment variable:
+Generate with Groq:
 
 ```bash
-export XAI_API_KEY="..."
-export WORKLOG_AI_MODEL="grok-4"
-export WORKLOG_XAI_BASE_URL="https://api.x.ai/v1"
+security add-generic-password -a "$USER" -s groq-api-token -w "YOUR_GROQ_API_KEY" -U
 worklog summarize --ai
 ```
 
-Or store the key in macOS Keychain:
+If Groq key is missing, `worklog` falls back to a simple local summary.
+
+Prompt template override:
 
 ```bash
-security add-generic-password -a "$USER" -s xai-api-token -w "YOUR_XAI_API_KEY" -U
-worklog summarize --ai
+worklog prompt init
+worklog prompt path
+worklog prompt print
 ```
 
-`XAI_API_KEY` has priority. If it is empty, `worklog` checks Keychain services `xai-api-token`, `grok.x.ai-api-token`, then legacy `worklog-xai-api-key`.
+Template file:
 
-`WORKLOG_XAI_BASE_URL` has priority over config. Default: `https://api.x.ai/v1`.
+```text
+~/.worklog/prompts/standup.md
+```
 
-Jira token is read from Keychain service `jira-api-token`, with legacy fallback `worklog-jira-api-token`.
+Placeholders: `{{date}}`, `{{done}}`, `{{planned}}`, `{{blockers}}`.
 
 The summary is saved to:
 
 ```text
 ~/.worklog/summaries/YYYY-MM-DD.md
 ```
+
+## Web UI
+
+Run local web interface:
+
+```bash
+worklog web                         # foreground
+worklog web --addr 127.0.0.1:8088
+worklog web start                   # background via launchctl
+worklog web stop
+worklog web status
+worklog web restart
+```
+
+By default it listens on localhost only. If you bind to a public address, pass a token:
+
+```bash
+worklog web --addr 0.0.0.0:8088 --token "secret"
+worklog web start --addr 0.0.0.0:8088 --token "secret"
+```
+
+Current Web UI supports the same storage as CLI:
+
+- dashboard with task and Groq limit statistics;
+- report by date with copy button for Telegram text;
+- prompt preview;
+- saved Groq summary view with copy button;
+- scan action, including force rescan;
+- add manual note: done / plan / blocker;
+- generate standup;
+- buttons disabled while requests are running;
+- clean setup/config page.
 
 ## Development
 
