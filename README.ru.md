@@ -48,6 +48,65 @@ worklog stats                    # статистика задач/Groq
 worklog version
 ```
 
+## Основные флоу
+
+### Ежедневный Telegram-отчёт без AI
+
+```bash
+worklog scan
+worklog report
+```
+
+`report` не вызывает Groq. Он читает дневной Markdown, чистит время/repo/sha, дедупит одинаковые commit messages и форматирует текст для Telegram.
+
+### Добавить ручные записи
+
+```bash
+worklog add "ABC-123 что сделал"
+worklog add --plan "ABC-123 что буду делать"
+worklog add --blocker "ABC-123 что блокирует"
+```
+
+Если ошибся, поправь файл дня вручную:
+
+```bash
+$EDITOR ~/.worklog/days/2026-06-23.md
+worklog report 2026-06-23
+```
+
+### Пересобрать коммиты за день, не трогая ручные записи
+
+```bash
+worklog scan --since "2026-06-23 00:00" --force
+worklog report 2026-06-23
+```
+
+`--force` игнорирует `state.json`, но дубли по SHA не добавляет. Ручные секции `Manual`, `Plan`, `Blockers` не перетираются.
+
+### Перегенерить Groq summary после ручных правок
+
+```bash
+worklog standup --date 2026-06-23 --no-scan
+cat ~/.worklog/summaries/2026-06-23.md
+```
+
+`summary` — это сохранённый результат Groq. `report` — локальный Telegram-ready отчёт без AI.
+
+### Web UI в фоне
+
+```bash
+worklog web start
+worklog web status
+worklog web stop
+worklog web restart
+```
+
+Обычный foreground-запуск тоже остаётся:
+
+```bash
+worklog web
+```
+
 ## Хранилище
 
 ```text
