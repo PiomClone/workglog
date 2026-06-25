@@ -54,11 +54,12 @@ func cmdWeb(args []string) error {
 	if *token != "" {
 		handler = tokenAuth(handler, *token)
 	}
-	fmt.Printf("worklog web listening on http://%s\n", *addr)
+	fmt.Printf("workglog web listening on http://%s\n", *addr)
 	return http.ListenAndServe(*addr, handler)
 }
 
-const webLaunchLabel = "com.worklog.web"
+const webLaunchLabel = "com.workglog.web"
+const legacyWebLaunchLabel = "com.worklog.web"
 
 func webServiceStart(args []string) error {
 	fs := flag.NewFlagSet("web start", flag.ContinueOnError)
@@ -87,6 +88,7 @@ func webServiceStart(args []string) error {
 		return err
 	}
 	_ = exec.Command("launchctl", "bootout", "gui/"+fmt.Sprint(os.Getuid()), plist).Run()
+	_ = exec.Command("launchctl", "bootout", "gui/"+fmt.Sprint(os.Getuid()), webLaunchPlistPathFor(legacyWebLaunchLabel)).Run()
 	if err := exec.Command("launchctl", "bootstrap", "gui/"+fmt.Sprint(os.Getuid()), plist).Run(); err != nil {
 		return err
 	}
@@ -99,8 +101,8 @@ func webServiceStart(args []string) error {
 }
 
 func webServiceStop() error {
-	plist := webLaunchPlistPath()
-	_ = exec.Command("launchctl", "bootout", "gui/"+fmt.Sprint(os.Getuid()), plist).Run()
+	_ = exec.Command("launchctl", "bootout", "gui/"+fmt.Sprint(os.Getuid()), webLaunchPlistPath()).Run()
+	_ = exec.Command("launchctl", "bootout", "gui/"+fmt.Sprint(os.Getuid()), webLaunchPlistPathFor(legacyWebLaunchLabel)).Run()
 	fmt.Printf("stopped %s\n", webLaunchLabel)
 	return nil
 }
@@ -117,8 +119,12 @@ func webServiceStatus() error {
 }
 
 func webLaunchPlistPath() string {
+	return webLaunchPlistPathFor(webLaunchLabel)
+}
+
+func webLaunchPlistPathFor(label string) string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "LaunchAgents", webLaunchLabel+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 }
 
 func webLaunchPlist(exe, addr, token, stdout, stderr string) string {
@@ -165,7 +171,7 @@ func webFavicon(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(faviconSVG))
 }
 
-const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="worklog icon">
+const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="workglog icon">
   <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#111827"/></linearGradient><linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#60a5fa"/></linearGradient></defs>
   <rect width="256" height="256" rx="56" fill="url(#bg)"/>
   <path d="M74 48h78l38 38v122H74z" fill="#f8fafc" opacity=".96"/>
@@ -218,7 +224,7 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{"join": 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} · worklog</title>
+<title>{{.Title}} · workglog</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -232,11 +238,11 @@ body{background:radial-gradient(circle at 10% 0,#0ea5e933,transparent 28%),radia
 <div id="spinner" class="fixed top-4 right-4 z-50 htmx-indicator"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-400"></div></div>
 <div class="max-w-6xl mx-auto">
 <header class="flex flex-col md:flex-row justify-between gap-4 md:items-center mb-8">
-  <div class="flex items-center gap-4"><img src="/favicon.svg" alt="worklog" class="w-14 h-14 rounded-xl shadow-lg"><div><h1 class="text-3xl font-bold text-sky-400">{{.Title}}</h1><p class="muted text-sm mt-1">коммиты · заметки · Jira · standup</p></div></div>
+  <div class="flex items-center gap-4"><img src="/favicon.svg" alt="workglog" class="w-14 h-14 rounded-xl shadow-lg"><div><h1 class="text-3xl font-bold text-sky-400">{{.Title}}</h1><p class="muted text-sm mt-1">коммиты · заметки · Jira · standup</p></div></div>
   <nav class="flex flex-wrap gap-2 text-sm"><a class="nav {{if eq .Path "/"}}nav-active{{end}}" href="/">Главная</a><a class="nav {{if eq .Path "/report"}}nav-active{{end}}" href="/report?date={{.Date}}">Отчёт</a><a class="nav {{if eq .Path "/prompt"}}nav-active{{end}}" href="/prompt?date={{.Date}}">Промпт</a><a class="nav {{if eq .Path "/summary"}}nav-active{{end}}" href="/summary?date={{.Date}}">Summary</a><a class="nav {{if eq .Path "/setup"}}nav-active{{end}}" href="/setup">Настройки</a></nav>
 </header>
 {{template "body" .}}
-<footer class="mt-12 text-center text-slate-600 text-xs border-t border-slate-800 pt-8">worklog · local only</footer>
+<footer class="mt-12 text-center text-slate-600 text-xs border-t border-slate-800 pt-8">workglog · local only</footer>
 </div>
 <script>
 function lockForm(form){

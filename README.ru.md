@@ -1,16 +1,16 @@
-# worklog
+# workglog
 
 [English](README.md) | [Русский](README.ru.md)
 
 <p align="center">
-  <img src="docs/icon.svg" width="96" alt="worklog logo">
+  <img src="docs/icon.svg" width="96" alt="workglog logo">
 </p>
 
-![worklog flow](docs/worklog-flow.svg)
+![workglog flow](docs/workglog-flow.svg)
 
 Локальный дневник работы без Git hooks и без изменений существующих репозиториев.
 
-`worklog` сканирует Git-репозитории, складывает коммиты и ручные заметки в дневные Markdown-файлы, группирует записи по задачам вида `ABC-123` и умеет готовить summary для стендапа через Groq. Jira используется только для обогащения задач названием и статусом.
+`workglog` сканирует Git-репозитории, складывает коммиты и ручные заметки в дневные Markdown-файлы, группирует записи по задачам вида `ABC-123` и умеет готовить summary для стендапа через Groq. Jira используется только для обогащения задач названием и статусом.
 
 ## Установка
 
@@ -23,29 +23,29 @@ make install
 Бинарь будет доступен как:
 
 ```text
-~/.local/bin/worklog
+~/.local/bin/workglog
 ```
 
 Если `~/.local/bin` есть в `PATH`, можно запускать просто:
 
 ```bash
-worklog
+workglog
 ```
 
 ## Быстрый старт
 
 ```bash
-worklog                          # интерактивный wizard
-worklog scan                     # собрать коммиты
-worklog add "ABC-123 что делал"  # ручная запись в «Что сделал»
-worklog add --plan "ABC-123 завтра доделаю"
-worklog add --blocker "ABC-123 жду доступ"
-worklog report                   # Telegram-ready отчёт за сегодня
-worklog report 2026-06-22        # отчёт за день
-worklog standup                  # scan + вызов Groq за прошлый рабочий день
-worklog standup --prompt         # только prompt, без вызова Groq
-worklog stats                    # статистика задач/Groq
-worklog version
+workglog                          # интерактивный wizard
+workglog scan                     # собрать коммиты
+workglog add "ABC-123 что делал"  # ручная запись в «Что сделал»
+workglog add --plan "ABC-123 завтра доделаю"
+workglog add --blocker "ABC-123 жду доступ"
+workglog report                   # Telegram-ready отчёт за сегодня
+workglog report 2026-06-22        # отчёт за день
+workglog standup                  # scan + вызов Groq за прошлый рабочий день
+workglog standup --prompt         # только prompt, без вызова Groq
+workglog stats                    # статистика задач/Groq
+workglog version
 ```
 
 ## Основные флоу
@@ -53,8 +53,8 @@ worklog version
 ### Ежедневный Telegram-отчёт без AI
 
 ```bash
-worklog scan
-worklog report
+workglog scan
+workglog report
 ```
 
 `report` не вызывает Groq. Он читает дневной Markdown, чистит время/repo/sha, дедупит одинаковые commit messages и форматирует текст для Telegram.
@@ -62,25 +62,25 @@ worklog report
 ### Добавить ручные записи
 
 ```bash
-worklog add "ABC-123 что сделал"
-worklog add --task ABC-123 "ручная заметка без номера"
-worklog add --last "ручная заметка к единственной задаче дня"
-worklog add --plan "ABC-123 что буду делать"
-worklog add --blocker "ABC-123 что блокирует"
+workglog add "ABC-123 что сделал"
+workglog add --task ABC-123 "ручная заметка без номера"
+workglog add --last "ручная заметка к единственной задаче дня"
+workglog add --plan "ABC-123 что буду делать"
+workglog add --blocker "ABC-123 что блокирует"
 ```
 
 В Web на странице отчёта можно выбрать задачу из dropdown: номер задачи добавится к ручной записи автоматически. Если ошибся, поправь файл дня вручную:
 
 ```bash
-$EDITOR ~/.worklog/days/2026-06-23.md
-worklog report 2026-06-23
+$EDITOR ~/.workglog/days/2026-06-23.md
+workglog report 2026-06-23
 ```
 
 ### Пересобрать коммиты за день, не трогая ручные записи
 
 ```bash
-worklog scan --since "2026-06-23 00:00" --force
-worklog report 2026-06-23
+workglog scan --since "2026-06-23 00:00" --force
+workglog report 2026-06-23
 ```
 
 `--force` игнорирует `state.json`, но дубли по SHA не добавляет. Ручные секции `Manual`, `Plan`, `Blockers` не перетираются.
@@ -88,8 +88,8 @@ worklog report 2026-06-23
 ### Перегенерить Groq summary после ручных правок
 
 ```bash
-worklog standup --date 2026-06-23 --no-scan
-cat ~/.worklog/summaries/2026-06-23.md
+workglog standup --date 2026-06-23 --no-scan
+cat ~/.workglog/summaries/2026-06-23.md
 ```
 
 `summary` — это сохранённый результат Groq. `report` — локальный Telegram-ready отчёт без AI.
@@ -97,29 +97,31 @@ cat ~/.worklog/summaries/2026-06-23.md
 ### Web UI в фоне
 
 ```bash
-worklog web start
-worklog web status
-worklog web stop
-worklog web restart
+workglog web start
+workglog web status
+workglog web stop
+workglog web restart
 ```
 
 Обычный foreground-запуск тоже остаётся:
 
 ```bash
-worklog web
+workglog web
 ```
 
 ## Хранилище
 
+По умолчанию используется `~/.workglog`. Если её нет, но есть legacy `~/.worklog`, `workglog` использует старую директорию, чтобы не потерять данные.
+
 ```text
-~/.worklog/
+~/.workglog/
   config.json
   state.json
   days/YYYY-MM-DD.md
   summaries/YYYY-MM-DD.md
 ```
 
-Пример `~/.worklog/config.json`:
+Пример `~/.workglog/config.json`:
 
 ```json
 {
@@ -136,7 +138,7 @@ worklog web
 ## Wizard
 
 ```bash
-worklog
+workglog
 ```
 
 Запуск без аргументов открывает меню:
@@ -156,7 +158,7 @@ worklog
 ## Настройка
 
 ```bash
-worklog setup
+workglog setup
 ```
 
 Основные пункты:
@@ -194,7 +196,7 @@ Groq key читается из Keychain `groq-api-token`. Если ключа н
 ## Scan
 
 ```bash
-worklog scan
+workglog scan
 ```
 
 По умолчанию:
@@ -208,45 +210,45 @@ worklog scan
 Опции:
 
 ```bash
-worklog scan --root /path/to/projects
-worklog scan --since "14 days ago"   # bootstrap
-worklog scan --since "30 days ago"
-worklog scan --exclude node_modules --exclude .gradle
-worklog scan --exclude-path /Users/avkorkin/prj/study/workglog
-worklog scan --all-authors
-worklog scan --author user@example.com
-worklog scan --quiet
-worklog scan --current-branch
-worklog scan --force             # игнорировать state.json, дубли по SHA не добавятся
+workglog scan --root /path/to/projects
+workglog scan --since "14 days ago"   # bootstrap
+workglog scan --since "30 days ago"
+workglog scan --exclude node_modules --exclude .gradle
+workglog scan --exclude-path /Users/avkorkin/prj/study/workglog
+workglog scan --all-authors
+workglog scan --author user@example.com
+workglog scan --quiet
+workglog scan --current-branch
+workglog scan --force             # игнорировать state.json, дубли по SHA не добавятся
 ```
 
 Env override:
 
 ```bash
-WORKLOG_SCAN_ROOT="/path/to/projects"
-WORKLOG_EXCLUDE_DIRS=".idea,.gradle,node_modules,vendor,target,build,dist"
-WORKLOG_EXCLUDE_PATHS="/Users/avkorkin/prj/study/workglog"
+WORKGLOG_SCAN_ROOT="/path/to/projects"
+WORKGLOG_EXCLUDE_DIRS=".idea,.gradle,node_modules,vendor,target,build,dist"
+WORKGLOG_EXCLUDE_PATHS="/Users/avkorkin/prj/study/workglog"
 ```
 
 Progress выводится в stderr. Если не нужен:
 
 ```bash
-worklog scan --quiet
+workglog scan --quiet
 ```
 
 ## Ручные записи
 
 ```bash
-worklog add "ABC-123 созвон по интеграции"
-worklog add --date 2026-06-22 "ABC-123 ретро по задаче"
-worklog add --type plan "ABC-123 завтра доделаю"
-worklog add --type blocker "ABC-123 жду доступ"
+workglog add "ABC-123 созвон по интеграции"
+workglog add --date 2026-06-22 "ABC-123 ретро по задаче"
+workglog add --type plan "ABC-123 завтра доделаю"
+workglog add --type blocker "ABC-123 жду доступ"
 
 Шорткаты:
 
 ```bash
-worklog add --plan "ABC-123 завтра доделаю"
-worklog add --blocker "ABC-123 жду доступ"
+workglog add --plan "ABC-123 завтра доделаю"
+workglog add --blocker "ABC-123 жду доступ"
 ```
 
 Типы пишутся в разные секции дневника:
@@ -261,8 +263,8 @@ worklog add --blocker "ABC-123 жду доступ"
 ## Отчёт
 
 ```bash
-worklog report
-worklog report 2026-06-22
+workglog report
+workglog report 2026-06-22
 ```
 
 Вывод готов для вставки в Telegram:
@@ -295,26 +297,26 @@ worklog report 2026-06-22
 Готовый стендап через Groq:
 
 ```bash
-worklog standup
+workglog standup
 ```
 
 Только prompt, без вызова Groq:
 
 ```bash
-worklog standup --prompt
+workglog standup --prompt
 ```
 
 За конкретную дату:
 
 ```bash
-worklog standup --date 2026-06-22
-worklog standup --date 2026-06-22 --prompt
+workglog standup --date 2026-06-22
+workglog standup --date 2026-06-22 --prompt
 ```
 
 Без предварительного scan:
 
 ```bash
-worklog standup --no-scan
+workglog standup --no-scan
 ```
 
 `standup` по умолчанию берёт предыдущий рабочий день. В понедельник это пятница.
@@ -322,7 +324,7 @@ worklog standup --no-scan
 Summary сохраняется в:
 
 ```text
-~/.worklog/summaries/YYYY-MM-DD.md
+~/.workglog/summaries/YYYY-MM-DD.md
 ```
 
 ## Groq
@@ -347,15 +349,15 @@ export GROQ_BASE_URL="https://api.groq.com/openai/v1"
 По умолчанию используется встроенный prompt. Чтобы создать локальный шаблон:
 
 ```bash
-worklog prompt init
-worklog prompt path
-worklog prompt print
+workglog prompt init
+workglog prompt path
+workglog prompt print
 ```
 
 Файл:
 
 ```text
-~/.worklog/prompts/standup.md
+~/.workglog/prompts/standup.md
 ```
 
 Плейсхолдеры:
@@ -371,13 +373,13 @@ worklog prompt print
 
 Jira URL берётся из:
 
-1. `WORKLOG_JIRA_URL`
+1. `WORKGLOG_JIRA_URL`
 2. `JIRA_URL`
 3. `config.jira_url`
 
 Jira user берётся из:
 
-1. `WORKLOG_JIRA_USER`
+1. `WORKGLOG_JIRA_USER`
 2. `JIRA_USER`
 3. `config.jira_user`
 
@@ -386,26 +388,26 @@ Auth:
 - если user пустой — `Authorization: Bearer <token>`;
 - если user задан — Basic auth `<user>:<token>`.
 
-Jira нужна только для обогащения prompt/summary названием и статусом задачи. Если URL или token не заданы, `worklog` просто пропускает Jira enrichment.
+Jira нужна только для обогащения prompt/summary названием и статусом задачи. Если URL или token не заданы, `workglog` просто пропускает Jira enrichment.
 
 ## Web UI
 
 Запуск локального web-интерфейса:
 
 ```bash
-worklog web                         # foreground, держит консоль
-worklog web --addr 127.0.0.1:8088
-worklog web start                   # background через launchctl
-worklog web stop
-worklog web status
-worklog web restart
+workglog web                         # foreground, держит консоль
+workglog web --addr 127.0.0.1:8088
+workglog web start                   # background через launchctl
+workglog web stop
+workglog web status
+workglog web restart
 ```
 
 По умолчанию слушает только localhost. Если биндить наружу, нужен token:
 
 ```bash
-worklog web --addr 0.0.0.0:8088 --token "secret"
-worklog web start --addr 0.0.0.0:8088 --token "secret"
+workglog web --addr 0.0.0.0:8088 --token "secret"
+workglog web start --addr 0.0.0.0:8088 --token "secret"
 ```
 
 Web UI использует то же хранилище, что и CLI:

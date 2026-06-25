@@ -25,6 +25,8 @@ var defaultExcludeDirs = []string{".idea", ".gradle", "node_modules", "vendor", 
 
 var taskRE = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b`)
 
+var rawGroqStatRE = regexp.MustCompile(`x-ratelimit-([a-z-]+): ([^·]+)`)
+
 var (
 	version = "dev"
 	commit  = "none"
@@ -74,10 +76,21 @@ const (
 )
 
 func Home() string {
+	if v := os.Getenv("WORKGLOG_HOME"); v != "" {
+		return ExpandHome(v)
+	}
 	if v := os.Getenv("WORKLOG_HOME"); v != "" {
 		return ExpandHome(v)
 	}
-	return filepath.Join(userHome(), ".worklog")
+	newHome := filepath.Join(userHome(), ".workglog")
+	legacyHome := filepath.Join(userHome(), ".worklog")
+	if _, err := os.Stat(newHome); err == nil {
+		return newHome
+	}
+	if _, err := os.Stat(legacyHome); err == nil {
+		return legacyHome
+	}
+	return newHome
 }
 
 func ConfigPath(home string) string        { return filepath.Join(home, "config.json") }
@@ -87,6 +100,11 @@ func PromptPath(home, name string) string  { return filepath.Join(home, "prompts
 func EnvDefault(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	if strings.HasPrefix(k, "WORKGLOG_") {
+		if v := os.Getenv("WORKLOG_" + strings.TrimPrefix(k, "WORKGLOG_")); v != "" {
+			return v
+		}
 	}
 	return fallback
 }
@@ -194,7 +212,7 @@ func EffectiveExcludeDirs(cfg Config, cli []string) []string {
 	if len(cli) > 0 {
 		return NormalizeList(cli)
 	}
-	if env := os.Getenv("WORKLOG_EXCLUDE_DIRS"); env != "" {
+	if env := os.Getenv("WORKGLOG_EXCLUDE_DIRS"); env != "" {
 		return SplitCSV(env)
 	}
 	if len(cfg.ExcludeDirs) > 0 {
@@ -207,7 +225,7 @@ func EffectiveExcludePaths(cfg Config, cli []string) []string {
 	if len(cli) > 0 {
 		return normalizePaths(cli)
 	}
-	if env := os.Getenv("WORKLOG_EXCLUDE_PATHS"); env != "" {
+	if env := os.Getenv("WORKGLOG_EXCLUDE_PATHS"); env != "" {
 		return normalizePaths(SplitCSV(env))
 	}
 	return normalizePaths(cfg.ExcludePaths)
@@ -811,43 +829,80 @@ func GroqAPIKey() string {
 }
 
 func SaveGroqStats(home, model string, headers http.Header) {
-	requests := ratePair(headers, "x-ratelimit-remaining-requests", "x-ratelimit-limit-requests")
-	tokens := ratePair(headers, "x-ratelimit-remaining-tokens", "x-ratelimit-limit-tokens")
-	parts := []string{"🤖 Groq", model}
-	if requests != "" {
-		parts = append(parts, "requests "+requests)
-	}
-	if reset := headers.Get("x-ratelimit-reset-requests"); reset != "" {
-		parts = append(parts, "req reset "+reset)
-	}
-	if tokens != "" {
-		parts = append(parts, "tokens "+tokens)
-	}
-	if reset := headers.Get("x-ratelimit-reset-tokens"); reset != "" {
-		parts = append(parts, "token reset "+reset)
-	}
-	parts = append(parts, "updated "+time.Now().Format("15:04"))
 	state, err := LoadState(home)
 	if err != nil {
 		return
 	}
-	state.GroqStats = strings.Join(parts, " · ")
+	state.GroqStats = BuildGroqStats(model, headerMap(headers), time.Now())
 	_ = SaveState(home, state)
 }
 
-func ratePair(headers http.Header, remainingKey, limitKey string) string {
-	remaining := headers.Get(remainingKey)
-	limit := headers.Get(limitKey)
-	switch {
-	case remaining != "" && limit != "":
-		return remaining + "/" + limit + " left"
-	case remaining != "":
-		return remaining + " left"
-	case limit != "":
-		return "limit " + limit
-	default:
+func BuildGroqStats(model string, values map[string]string, updated time.Time) string {
+	parts := []string{"🤖 Groq", model}
+	if requests := quotaText("requests", values["limit-requests"], values["remaining-requests"], values["reset-requests"]); requests != "" {
+		parts = append(parts, requests)
+	}
+	if tokens := quotaText("tokens", values["limit-tokens"], values["remaining-tokens"], values["reset-tokens"]); tokens != "" {
+		parts = append(parts, tokens)
+	}
+	parts = append(parts, "updated "+updated.Format("15:04"))
+	return strings.Join(parts, " · ")
+}
+
+func NormalizeGroqStats(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.Contains(raw, "x-ratelimit-") {
+		return raw
+	}
+	values := map[string]string{}
+	for _, match := range rawGroqStatRE.FindAllStringSubmatch(raw, -1) {
+		if len(match) == 3 {
+			values[strings.TrimSpace(match[1])] = strings.TrimSpace(match[2])
+		}
+	}
+	model := "unknown model"
+	for _, part := range strings.Split(raw, "·") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "model: ") {
+			model = strings.TrimPrefix(part, "model: ")
+		}
+	}
+	return BuildGroqStats(model, values, time.Now())
+}
+
+func headerMap(headers http.Header) map[string]string {
+	values := map[string]string{}
+	for _, key := range []string{"limit-requests", "remaining-requests", "reset-requests", "limit-tokens", "remaining-tokens", "reset-tokens"} {
+		if value := headers.Get("x-ratelimit-" + key); value != "" {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func quotaText(name, limit, remaining, reset string) string {
+	if limit == "" && remaining == "" && reset == "" {
 		return ""
 	}
+	used := "?"
+	if limitInt, err1 := strconv.Atoi(limit); err1 == nil {
+		if remainingInt, err2 := strconv.Atoi(remaining); err2 == nil {
+			used = strconv.Itoa(limitInt - remainingInt)
+		}
+	}
+	var b strings.Builder
+	b.WriteString(name + ": ")
+	if limit != "" && remaining != "" {
+		b.WriteString(used + " used / " + remaining + " left / " + limit + " limit")
+	} else if remaining != "" {
+		b.WriteString(remaining + " left")
+	} else if limit != "" {
+		b.WriteString(limit + " limit")
+	}
+	if reset != "" {
+		b.WriteString(", reset in " + reset)
+	}
+	return b.String()
 }
 
 func callGroq(cfg Config, key, model, prompt string) (string, error) {
@@ -886,7 +941,7 @@ func EnsurePlannedFallback(planned []TaskGroup) []TaskGroup {
 }
 
 func LoadPlannedWork(cfg Config) []TaskGroup {
-	root := EnvDefault("WORKLOG_SCAN_ROOT", DefaultIfEmpty(cfg.ScanRoot, defaultRoot))
+	root := EnvDefault("WORKGLOG_SCAN_ROOT", DefaultIfEmpty(cfg.ScanRoot, defaultRoot))
 	repos, err := FindRepos(root, EffectiveExcludeDirs(cfg, nil), EffectiveExcludePaths(cfg, nil))
 	if err != nil {
 		return nil
@@ -1023,7 +1078,7 @@ func fetchJiraIssue(cfg Config, token, key string) (JiraIssue, error) {
 }
 
 func JiraURL(cfg Config) string {
-	if v := os.Getenv("WORKLOG_JIRA_URL"); v != "" {
+	if v := EnvDefault("WORKGLOG_JIRA_URL", ""); v != "" {
 		return strings.TrimRight(v, "/")
 	}
 	if v := os.Getenv("JIRA_URL"); v != "" {
@@ -1033,7 +1088,7 @@ func JiraURL(cfg Config) string {
 }
 
 func JiraUser(cfg Config) string {
-	if v := os.Getenv("WORKLOG_JIRA_USER"); v != "" {
+	if v := EnvDefault("WORKGLOG_JIRA_USER", ""); v != "" {
 		return v
 	}
 	if v := os.Getenv("JIRA_USER"); v != "" {
@@ -1115,7 +1170,7 @@ func Stats(home string) WorklogStats {
 		TodayTasks:   len(groups),
 		SummaryFiles: summaryFiles,
 		LastScan:     state.LastScan,
-		GroqStats:    state.GroqStats,
+		GroqStats:    NormalizeGroqStats(state.GroqStats),
 	}
 }
 

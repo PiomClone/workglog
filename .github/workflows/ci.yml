@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.4'
-      - run: gofmt -w cmd/worklog/main.go internal/app/app.go && git diff --exit-code
+      - run: gofmt -w cmd/workglog/main.go internal/app/app.go && git diff --exit-code
       - uses: golangci/golangci-lint-action@v6
         with:
           version: latest

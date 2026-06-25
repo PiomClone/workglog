@@ -70,41 +70,41 @@ func Run(args []string) error {
 }
 
 func usage() {
-	fmt.Println(`worklog
+	fmt.Println(`workglog
 
 Run without arguments to open the interactive wizard.
 
 Commands:
-  worklog scan [--root /path] [--since "YYYY-MM-DD 00:00"] [--all-authors] [--current-branch] [--force]
-  worklog add [--date YYYY-MM-DD] [--type done|plan|blocker] [--task ABC-123|--last] "text"
-  worklog report [YYYY-MM-DD]
-  worklog summarize [YYYY-MM-DD] [--prompt] [--ai] [--model llama-3.3-70b-versatile]
-  worklog standup [--date YYYY-MM-DD] [--prompt] [--no-scan]
-  worklog setup
-  worklog stats
-  worklog prompt init|path|print
-  worklog web [--addr 127.0.0.1:8088]
-  worklog web start|stop|status|restart
-  worklog wizard
-  worklog version
+  workglog scan [--root /path] [--since "YYYY-MM-DD 00:00"] [--all-authors] [--current-branch] [--force]
+  workglog add [--date YYYY-MM-DD] [--type done|plan|blocker] [--task ABC-123|--last] "text"
+  workglog report [YYYY-MM-DD]
+  workglog summarize [YYYY-MM-DD] [--prompt] [--ai] [--model llama-3.3-70b-versatile]
+  workglog standup [--date YYYY-MM-DD] [--prompt] [--no-scan]
+  workglog setup
+  workglog stats
+  workglog prompt init|path|print
+  workglog web [--addr 127.0.0.1:8088]
+  workglog web start|stop|status|restart
+  workglog wizard
+  workglog version
 
 Env:
-  WORKLOG_HOME      default ~/.worklog
-  WORKLOG_SCAN_ROOT default /Users/avkorkin/prj or config scan_root
-  WORKLOG_EXCLUDE_DIRS comma-separated dir names, overrides config exclude_dirs
-  WORKLOG_EXCLUDE_PATHS comma-separated paths, overrides config exclude_paths
+  WORKGLOG_HOME     default ~/.workglog; falls back to legacy ~/.worklog
+  WORKGLOG_SCAN_ROOT default /Users/avkorkin/prj or config scan_root
+  WORKGLOG_EXCLUDE_DIRS comma-separated dir names, overrides config exclude_dirs
+  WORKGLOG_EXCLUDE_PATHS comma-separated paths, overrides config exclude_paths
   GROQ_MODEL        default llama-3.3-70b-versatile or config groq_model
   GROQ_BASE_URL     default https://api.groq.com/openai/v1 or config groq_base_url
   Groq token        Keychain groq-api-token; if empty, simple summary without AI
-  WORKLOG_JIRA_URL optional; fallback JIRA_URL or config jira_url
-  WORKLOG_JIRA_USER optional; only needed for Basic auth
+  WORKGLOG_JIRA_URL optional; fallback JIRA_URL or config jira_url
+  WORKGLOG_JIRA_USER optional; only needed for Basic auth
   Jira token        optional; fallback Keychain jira-api-token/worklog-jira-api-token`)
 }
 
 func cmdScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	cfg := wl.LoadConfig(wl.Home())
-	root := fs.String("root", wl.EnvDefault("WORKLOG_SCAN_ROOT", wl.DefaultIfEmpty(cfg.ScanRoot, defaultRoot)), "projects root")
+	root := fs.String("root", wl.EnvDefault("WORKGLOG_SCAN_ROOT", wl.DefaultIfEmpty(cfg.ScanRoot, defaultRoot)), "projects root")
 	excludes := multiFlag{}
 	excludePaths := multiFlag{}
 	fs.Var(&excludes, "exclude", "directory name to skip; can be repeated")
@@ -393,7 +393,7 @@ func cmdSetup() error {
 	cfg := wl.LoadConfig(home)
 	r := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("worklog setup")
+		fmt.Println("workglog setup")
 		fmt.Println("1) Scan root")
 		fmt.Println("2) Groq")
 		fmt.Println("3) Jira")
@@ -495,7 +495,7 @@ func cmdWizard() error {
 
 func printWizardHeader() {
 	cfg := wl.LoadConfig(wl.Home())
-	fmt.Println("worklog wizard")
+	fmt.Println("workglog wizard")
 	fmt.Printf("root: %s\n", wl.DefaultIfEmpty(cfg.ScanRoot, defaultRoot))
 	fmt.Printf("jira: %s, token: %s\n", configured(wl.JiraURL(cfg) != ""), configured(wl.JiraAPIToken() != ""))
 	fmt.Printf("groq: %s, model: %s\n", configured(wl.GroqAPIKey() != ""), wl.GroqModel(cfg))
@@ -504,7 +504,7 @@ func printWizardHeader() {
 }
 
 func cmdVersion() error {
-	fmt.Printf("worklog %s\ncommit: %s\nbuilt: %s\n", version, commit, builtAt)
+	fmt.Printf("workglog %s\ncommit: %s\nbuilt: %s\n", version, commit, builtAt)
 	return nil
 }
 
